@@ -1,3 +1,4 @@
+#include "initializer.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <print>
@@ -10,7 +11,16 @@ int main(int argc, char** argv) {
     }
 
     std::string command = argv[1];
-    if (command == "build") {
+    if (command == "init") {
+        auto result = bb::init();
+
+        if (!result) {
+            std::println(stderr, "error: {}", result.error());
+            return 1;
+        }
+
+        std::println("initialized");
+    } else if (command == "build") {
         std::println("bulding");
     } else if (command == "run") {
         std::println("running");

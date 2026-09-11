@@ -7,6 +7,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(bb
     src/main.cpp
     src/string_utils.cpp
+    src/initializer.cpp
+    src/process.cpp
 )
 
 target_compile_features(bb PRIVATE cxx_std_23)
