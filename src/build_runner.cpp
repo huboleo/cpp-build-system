@@ -1,8 +1,11 @@
 #include "bb/build.hpp"
+#include "compilation_database.hpp"
 #include "process.hpp"
 #include <filesystem>
+#include <fstream>
 #include <print>
 #include <system_error>
+#include <utility>
 
 int main(int argc, char** argv) {
     namespace fs = std::filesystem;
@@ -50,11 +53,35 @@ int main(int argc, char** argv) {
 
     const auto output_path = fs::path{"build"} / target.name;
 
-    std::vector<std::string> arguments{
+    const std::vector<std::string> compiler_arguments{
         "clang++",
         "-std=c++23",
     };
 
+    const auto project_dir = fs::current_path(error);
+    if (error) {
+        std::println(stderr, "error: cannot determine project directory: {}", error.message());
+        return 1;
+    }
+
+    std::vector<bb::CompileCommand> commands{
+        bb::build_configuration_command(project_dir)
+    };
+    for (const auto& source : target.sources) {
+        auto source_arguments = compiler_arguments;
+        source_arguments.push_back("-c");
+        source_arguments.push_back(source);
+        commands.push_back({project_dir, source, std::move(source_arguments)});
+    }
+
+    auto database = bb::write_compilation_database(
+        project_dir / "compile_commands.json", commands, bb::DatabaseWriteMode::replace);
+    if (!database) {
+        std::println(stderr, "error: {}", database.error());
+        return 1;
+    }
+
+    auto arguments = compiler_arguments;
     for (const auto& source : target.sources) {
         arguments.push_back(source);
     }
@@ -73,6 +100,31 @@ int main(int argc, char** argv) {
 
     if (*result != 0) {
         return *result;
+    }
+
+    const auto executable = fs::absolute(output_path, error);
+
+    if (error) {
+        std::println(stderr, "error: cannot resolve executable path: {}", error.message());
+        return 1;
+    }
+
+    std::ofstream report{
+        ".cache/bb/executable-path",
+        std::ios::binary | std::ios::trunc
+    };
+
+    if (!report) {
+        std::println(stderr, "error: cannot open executable path report");
+        return 1;
+    }
+
+    report << executable.string();
+    report.close();
+
+    if (!report) {
+        std::println(stderr, "error: cannot write executable path report");
+        return 1;
     }
 
     std::println("Built {}", output_path.string());

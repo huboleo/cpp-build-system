@@ -1,8 +1,8 @@
+#include "builder.hpp"
 #include "initializer.hpp"
 #include "process.hpp"
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 #include <print>
 #include <string>
 
@@ -14,58 +14,44 @@ int main(int argc, char** argv) {
 
     std::string command = argv[1];
     if (command == "init") {
-        auto result = bb::init();
+        auto mode = bb::InitMode::new_project;
+        if (argc == 3 && std::string{argv[2]} == "--existing") {
+            mode = bb::InitMode::existing_project;
+        } else if (argc != 2) {
+            std::println(stderr, "Usage: bb init [--existing]");
+            return 1;
+        }
+
+        auto result = bb::init(mode);
 
         if (!result) {
             std::println(stderr, "error: {}", result.error());
             return 1;
         }
 
-        std::println("initialized");
-    } else if (command == "build") {
-        std::error_code error;
-        std::filesystem::create_directories(".cache/bb", error);
+        if (mode == bb::InitMode::existing_project) {
+            std::println("initialized; edit build.cpp to list your executable's sources before building");
+        } else {
+            std::println("initialized");
+        }
+    } else if (command == "build" || command == "run") {
+        auto result = bb::build_project();
 
-        if (error) {
-            std::println(stderr, "error: {}", error.message());
+        if (!result) {
+            std::println(stderr, "error: {}", result.error());
             return 1;
         }
 
-        // Compile bb's runner together with this project's build.cpp.
-        auto compiled = bb::run_process({
-            "clang++",
-            "-std=c++23",
-            "-I/Users/hubert/Projects/cpp-build-system/include",
+        if (command == "run") {
+            auto executed = bb::run_process({result->string()});
 
-            "/Users/hubert/Projects/cpp-build-system/src/build_runner.cpp",
-            "/Users/hubert/Projects/cpp-build-system/src/build.cpp",
-            "/Users/hubert/Projects/cpp-build-system/src/process.cpp",
+            if (!executed) {
+                std::println(stderr, "error: {}", executed.error());
+                return 1;
+            }
 
-            "build.cpp",
-            "-o",
-            ".cache/bb/build-runner",
-        });
-
-        if (!compiled) {
-            std::println(stderr, "error: {}", compiled.error());
-            return 1;
+            return *executed;
         }
-
-        if (*compiled != 0) {
-            return *compiled;
-        }
-
-        // Start the executable we just compiled.
-        auto executed = bb::run_process({".cache/bb/build-runner"});
-
-        if (!executed) {
-            std::println(stderr, "error: {}", executed.error());
-            return 1;
-        }
-
-        return *executed;
-    } else if (command == "run") {
-        std::println("running");
     }
 
     return 0;

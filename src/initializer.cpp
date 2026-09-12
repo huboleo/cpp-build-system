@@ -1,10 +1,10 @@
 #include "initializer.hpp"
+#include "compilation_database.hpp"
 #include "process.hpp"
 #include <expected>
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -30,27 +30,6 @@ std::expected<void, std::string> finish_file(std::ofstream& output,
     return {};
 }
 
-std::string json_string(std::string_view text) {
-    constexpr char hex[] = "0123456789abcdef";
-    std::string result = "\"";
-
-    for (unsigned char c : text) {
-        if (c == '"' || c == '\\') {
-            result += '\\';
-            result += static_cast<char>(c);
-        } else if (c < 0x20) {
-            result += "\\u00";
-            result += hex[c >> 4];
-            result += hex[c & 0x0f];
-        } else {
-            result += static_cast<char>(c);
-        }
-    }
-
-    result += '"';
-    return result;
-}
-
 std::expected<void, std::string> write_main_file(const std::filesystem::path& main_file) {
     std::ofstream main_output{main_file, std::ios::out | std::ios::noreplace};
 
@@ -70,20 +49,33 @@ int main()
     return finish_file(main_output, main_file);
 }
 
-std::expected<void, std::string> write_build_file(const std::filesystem::path& build_file) {
+std::expected<void, std::string> write_build_file(
+    const std::filesystem::path& build_file,
+    bb::InitMode mode = bb::InitMode::new_project) {
     std::ofstream build_output{build_file, std::ios::out | std::ios::noreplace};
 
     if (!build_output) {
         return std::unexpected("Could not open " + build_file.string());
     }
 
-    build_output << R"(#include <bb/build.hpp>
+    if (mode == bb::InitMode::existing_project) {
+        build_output << R"(#include <bb/build.hpp>
+
+void build(bb::Build& b)
+{
+    // List the source files for your executable:
+    // b.executable("app", {"src/main.cpp", "src/utils.cpp"});
+}
+)";
+    } else {
+        build_output << R"(#include <bb/build.hpp>
 
 void build(bb::Build& b)
 {
     b.executable("app", {"src/main.cpp"});
 }
     )";
+    }
 
     return finish_file(build_output, build_file);
 }
@@ -101,56 +93,64 @@ build
     return finish_file(output, gitignore_file);
 }
 
-// TODO: Replace hardcoded directories with proper discovered paths
-std::expected<void, std::string> write_compile_commands(const std::filesystem::path& project_dir) {
-    const auto commands_file = project_dir / "compile_commands.json";
+std::expected<void, std::string> write_compile_commands(
+    const std::filesystem::path& project_dir,
+    bb::InitMode mode = bb::InitMode::new_project) {
+    std::vector<bb::CompileCommand> commands{
+        bb::build_configuration_command(project_dir)
+    };
 
-    // Fixed API location for the development prototype.
-    const std::filesystem::path bb_include_dir = "/Users/hubert/Projects/cpp-build-system/include";
-    std::ofstream commands_output{commands_file, std::ios::out | std::ios::noreplace};
-
-    if (!commands_output) {
-        return std::unexpected("Could not open " + commands_file.string());
+    if (mode == bb::InitMode::new_project) {
+        commands.push_back({project_dir, "src/main.cpp",
+                            {"clang++", "-std=c++23", "-c", "src/main.cpp"}});
     }
 
-    const auto directory = json_string(project_dir.string());
-    const auto include_dir = json_string(bb_include_dir.string());
+    return bb::write_compilation_database(
+        project_dir / "compile_commands.json", commands,
+        mode == bb::InitMode::existing_project ? bb::DatabaseWriteMode::merge
+                                               : bb::DatabaseWriteMode::create);
+}
 
-    commands_output << R"([
-  {
-    "directory": )" << directory
-                    << R"(,
-    "file": "build.cpp",
-    "arguments": [
-      "clang++",
-      "-std=c++23",
-      "-I",
-      )" << include_dir
-                    << R"(,
-      "-c",
-      "build.cpp"
-    ]
-  },
-  {
-    "directory": )" << directory
-                    << R"(,
-    "file": "src/main.cpp",
-    "arguments": [
-      "clang++",
-      "-std=c++23",
-      "-c",
-      "src/main.cpp"
-    ]
-  }
-]
-)";
+std::expected<void, std::string> init_existing(const std::filesystem::path& project_dir) {
+    const auto build_file = project_dir / "build.cpp";
+    const auto gitignore_file = project_dir / ".gitignore";
+    std::error_code error;
+    const bool has_gitignore = std::filesystem::exists(gitignore_file, error);
+    if (error) {
+        return std::unexpected("Could not inspect " + gitignore_file.string() + ": " + error.message());
+    }
 
-    return finish_file(commands_output, commands_file);
+    if (auto result = write_build_file(build_file, bb::InitMode::existing_project); !result) {
+        return result;
+    }
+
+    bool created_gitignore = false;
+    const auto rollback = [&](std::string diagnostic) -> std::expected<void, std::string> {
+        if (created_gitignore) {
+            remove_created_path(gitignore_file, diagnostic);
+        }
+        remove_created_path(build_file, diagnostic);
+        return std::unexpected(diagnostic);
+    };
+
+    if (!has_gitignore) {
+        if (auto result = write_gitignore_file(gitignore_file); !result) {
+            return rollback(result.error());
+        }
+        created_gitignore = true;
+    }
+
+    // Update the existing database last, after all other file creation succeeds.
+    if (auto result = write_compile_commands(project_dir, bb::InitMode::existing_project); !result) {
+        return rollback(result.error());
+    }
+
+    return {};
 }
 
 } // namespace
 
-std::expected<void, std::string> bb::init() {
+std::expected<void, std::string> bb::init(InitMode mode) {
     namespace fs = std::filesystem;
 
     std::error_code error;
@@ -158,6 +158,10 @@ std::expected<void, std::string> bb::init() {
 
     if (error) {
         return std::unexpected("Could not determine project directory: " + error.message());
+    }
+
+    if (mode == InitMode::existing_project) {
+        return init_existing(project_dir);
     }
 
     const auto build_file = project_dir / "build.cpp";
