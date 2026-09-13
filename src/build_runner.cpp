@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
     }
 
     auto database = bb::write_compilation_database(
-        project_dir / "compile_commands.json", commands, bb::DatabaseWriteMode::replace);
+        project_dir / "compile_commands.json", commands, bb::DatabaseWriteMode::REPLACE);
     if (!database) {
         std::println(stderr, "error: {}", database.error());
         return 1;

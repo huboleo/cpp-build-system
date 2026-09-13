@@ -51,14 +51,14 @@ int main()
 
 std::expected<void, std::string> write_build_file(
     const std::filesystem::path& build_file,
-    bb::InitMode mode = bb::InitMode::new_project) {
+    bb::InitMode mode = bb::InitMode::NEW_PROJECT) {
     std::ofstream build_output{build_file, std::ios::out | std::ios::noreplace};
 
     if (!build_output) {
         return std::unexpected("Could not open " + build_file.string());
     }
 
-    if (mode == bb::InitMode::existing_project) {
+    if (mode == bb::InitMode::EXISTING_PROJECT) {
         build_output << R"(#include <bb/build.hpp>
 
 void build(bb::Build& b)
@@ -95,20 +95,20 @@ build
 
 std::expected<void, std::string> write_compile_commands(
     const std::filesystem::path& project_dir,
-    bb::InitMode mode = bb::InitMode::new_project) {
+    bb::InitMode mode = bb::InitMode::NEW_PROJECT) {
     std::vector<bb::CompileCommand> commands{
         bb::build_configuration_command(project_dir)
     };
 
-    if (mode == bb::InitMode::new_project) {
+    if (mode == bb::InitMode::NEW_PROJECT) {
         commands.push_back({project_dir, "src/main.cpp",
                             {"clang++", "-std=c++23", "-c", "src/main.cpp"}});
     }
 
     return bb::write_compilation_database(
         project_dir / "compile_commands.json", commands,
-        mode == bb::InitMode::existing_project ? bb::DatabaseWriteMode::merge
-                                               : bb::DatabaseWriteMode::create);
+        mode == bb::InitMode::EXISTING_PROJECT ? bb::DatabaseWriteMode::MERGE
+                                               : bb::DatabaseWriteMode::CREATE);
 }
 
 std::expected<void, std::string> init_existing(const std::filesystem::path& project_dir) {
@@ -120,7 +120,7 @@ std::expected<void, std::string> init_existing(const std::filesystem::path& proj
         return std::unexpected("Could not inspect " + gitignore_file.string() + ": " + error.message());
     }
 
-    if (auto result = write_build_file(build_file, bb::InitMode::existing_project); !result) {
+    if (auto result = write_build_file(build_file, bb::InitMode::EXISTING_PROJECT); !result) {
         return result;
     }
 
@@ -141,7 +141,7 @@ std::expected<void, std::string> init_existing(const std::filesystem::path& proj
     }
 
     // Update the existing database last, after all other file creation succeeds.
-    if (auto result = write_compile_commands(project_dir, bb::InitMode::existing_project); !result) {
+    if (auto result = write_compile_commands(project_dir, bb::InitMode::EXISTING_PROJECT); !result) {
         return rollback(result.error());
     }
 
@@ -160,7 +160,7 @@ std::expected<void, std::string> bb::init(InitMode mode) {
         return std::unexpected("Could not determine project directory: " + error.message());
     }
 
-    if (mode == InitMode::existing_project) {
+    if (mode == InitMode::EXISTING_PROJECT) {
         return init_existing(project_dir);
     }
 

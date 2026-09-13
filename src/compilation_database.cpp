@@ -12,9 +12,8 @@ using nlohmann::json;
 namespace fs = std::filesystem;
 
 bool valid_entry(const json& entry) {
-    if (!entry.is_object() || !entry.contains("directory") ||
-        !entry["directory"].is_string() || !entry.contains("file") ||
-        !entry["file"].is_string()) {
+    if (!entry.is_object() || !entry.contains("directory") || !entry["directory"].is_string() ||
+        !entry.contains("file") || !entry["file"].is_string()) {
         return false;
     }
 
@@ -32,8 +31,8 @@ bool valid_entry(const json& entry) {
 }
 
 fs::path source_path(const json& entry) {
-    return (fs::path{entry["directory"].get<std::string>()} /
-            entry["file"].get<std::string>()).lexically_normal();
+    return (fs::path{entry["directory"].get<std::string>()} / entry["file"].get<std::string>())
+        .lexically_normal();
 }
 
 std::expected<void, std::string> write_file(const fs::path& path, const std::string& contents) {
@@ -60,32 +59,31 @@ std::expected<void, std::string> write_file(const fs::path& path, const std::str
 } // namespace
 
 bb::CompileCommand bb::build_configuration_command(const std::filesystem::path& project_dir) {
-    return {
-        project_dir,
-        "build.cpp",
-        {"clang++", "-std=c++23", "-I",
-         "/Users/hubert/Projects/cpp-build-system/include", "-c", "build.cpp"}
-    };
+    return {.directory = project_dir,
+            .file = "build.cpp",
+            .arguments = {"clang++", "-std=c++23", "-I",
+                          "/Users/hubert/Projects/cpp-build-system/include", "-c", "build.cpp"}};
 }
 
-std::expected<void, std::string> bb::write_compilation_database(
-    const std::filesystem::path& path,
-    std::span<const CompileCommand> commands,
-    DatabaseWriteMode mode) {
+std::expected<void, std::string>
+bb::write_compilation_database(const std::filesystem::path& path,
+                               std::span<const CompileCommand> commands, DatabaseWriteMode mode) {
     try {
         auto database = json::array();
 
-        if (mode == DatabaseWriteMode::merge) {
+        if (mode == DatabaseWriteMode::MERGE) {
             std::error_code error;
             const bool exists = fs::exists(path, error);
             if (error) {
-                return std::unexpected("Could not inspect " + path.string() + ": " + error.message());
+                return std::unexpected("Could not inspect " + path.string() + ": " +
+                                       error.message());
             }
 
             if (exists) {
                 if (!fs::is_regular_file(path, error)) {
-                    return std::unexpected("Cannot read compilation database " + path.string() +
-                                           (error ? ": " + error.message() : ": not a regular file"));
+                    return std::unexpected(
+                        "Cannot read compilation database " + path.string() +
+                        (error ? ": " + error.message() : ": not a regular file"));
                 }
                 std::ifstream input{path, std::ios::binary};
                 if (!input) {
@@ -100,22 +98,21 @@ std::expected<void, std::string> bb::write_compilation_database(
                     return std::unexpected("Invalid JSON in " + path.string());
                 }
                 if (!database.is_array() || !std::ranges::all_of(database, valid_entry)) {
-                    return std::unexpected("Invalid compilation database entries in " + path.string());
+                    return std::unexpected("Invalid compilation database entries in " +
+                                           path.string());
                 }
             }
         }
 
         for (const auto& command : commands) {
-            json entry{
-                {"directory", command.directory.string()},
-                {"file", command.file.string()},
-                {"arguments", command.arguments}
-            };
+            json entry{{"directory", command.directory.string()},
+                       {"file", command.file.string()},
+                       {"arguments", command.arguments}};
             if (!valid_entry(entry)) {
                 return std::unexpected("Invalid compile command for " + command.file.string());
             }
 
-            if (mode == DatabaseWriteMode::merge) {
+            if (mode == DatabaseWriteMode::MERGE) {
                 const auto source = source_path(entry);
                 // Match relative and absolute spellings of the same source.
                 for (auto it = database.begin(); it != database.end();) {
@@ -131,7 +128,7 @@ std::expected<void, std::string> bb::write_compilation_database(
 
         // Serialize before opening any output file, so JSON errors change nothing.
         const auto contents = database.dump(2) + "\n";
-        if (mode == DatabaseWriteMode::create) {
+        if (mode == DatabaseWriteMode::CREATE) {
             return write_file(path, contents);
         }
 

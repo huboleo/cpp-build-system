@@ -14,9 +14,9 @@ int main(int argc, char** argv) {
 
     std::string command = argv[1];
     if (command == "init") {
-        auto mode = bb::InitMode::new_project;
+        auto mode = bb::InitMode::NEW_PROJECT;
         if (argc == 3 && std::string{argv[2]} == "--existing") {
-            mode = bb::InitMode::existing_project;
+            mode = bb::InitMode::EXISTING_PROJECT;
         } else if (argc != 2) {
             std::println(stderr, "Usage: bb init [--existing]");
             return 1;
@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        if (mode == bb::InitMode::existing_project) {
+        if (mode == bb::InitMode::EXISTING_PROJECT) {
             std::println("initialized; edit build.cpp to list your executable's sources before building");
         } else {
             std::println("initialized");

@@ -3,8 +3,8 @@
 #include <string>
 
 namespace bb {
-enum class InitMode { new_project, existing_project };
+enum class InitMode { NEW_PROJECT, EXISTING_PROJECT };
 
-[[nodiscard]] std::expected<void, std::string> init(InitMode mode = InitMode::new_project);
+[[nodiscard]] std::expected<void, std::string> init(InitMode mode = InitMode::NEW_PROJECT);
 
 }

@@ -24,12 +24,10 @@ std::expected<std::filesystem::path, std::string> bb::build_project() {
     auto compiled = run_process({
         "clang++",
         "-std=c++23",
-        "-I/Users/hubert/Projects/cpp-build-system/include",
-        "/Users/hubert/Projects/cpp-build-system/src/build_runner.cpp",
-        "/Users/hubert/Projects/cpp-build-system/src/build.cpp",
-        "/Users/hubert/Projects/cpp-build-system/src/process.cpp",
+        "-I",
+        BB_SDK_INCLUDE_DIR,
         "build.cpp",
-        BB_COMPILATION_DATABASE_LIBRARY,
+        BB_RUNTIME_LIBRARY,
         "-o",
         ".cache/bb/build-runner",
     });

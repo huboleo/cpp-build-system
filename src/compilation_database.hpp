@@ -14,7 +14,7 @@ struct CompileCommand {
     std::vector<std::string> arguments;
 };
 
-enum class DatabaseWriteMode { create, merge, replace };
+enum class DatabaseWriteMode { CREATE, MERGE, REPLACE };
 
 // The build configuration needs bb's SDK include directory in the editor too.
 [[nodiscard]] CompileCommand build_configuration_command(const std::filesystem::path& project_dir);
@@ -23,6 +23,6 @@ enum class DatabaseWriteMode { create, merge, replace };
 [[nodiscard]] std::expected<void, std::string> write_compilation_database(
     const std::filesystem::path& path,
     std::span<const CompileCommand> commands,
-    DatabaseWriteMode mode = DatabaseWriteMode::create);
+    DatabaseWriteMode mode = DatabaseWriteMode::CREATE);
 
 } // namespace bb
