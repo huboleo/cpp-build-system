@@ -1,6 +1,5 @@
 #include "builder.hpp"
 #include "initializer.hpp"
-#include "process.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <print>
@@ -35,23 +34,19 @@ int main(int argc, char** argv) {
             std::println("initialized");
         }
     } else if (command == "build" || command == "run") {
-        auto result = bb::build_project();
+        const auto build_command =
+            command == "build"
+                ? bb::BuildCommand::BUILD
+                : bb::BuildCommand::RUN;
+
+        auto result = bb::build_project(build_command);
 
         if (!result) {
             std::println(stderr, "error: {}", result.error());
             return 1;
         }
 
-        if (command == "run") {
-            auto executed = bb::run_process({result->string()});
-
-            if (!executed) {
-                std::println(stderr, "error: {}", executed.error());
-                return 1;
-            }
-
-            return *executed;
-        }
+        return *result;
     }
 
     return 0;

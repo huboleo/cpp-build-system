@@ -1,12 +1,18 @@
 #pragma once
 
 #include <expected>
-#include <filesystem>
 #include <string>
 
 namespace bb {
 
-// Builds the project in the current working directory and returns its executable.
-[[nodiscard]] std::expected<std::filesystem::path, std::string> build_project();
+enum class BuildCommand {
+    BUILD,
+    RUN,
+};
+
+// Prepares and launches the build runner for the requested command.
+// Returns the runner's exit code, or an error preparing/launching it.
+[[nodiscard]]
+std::expected<int, std::string> build_project(BuildCommand command);
 
 } // namespace bb

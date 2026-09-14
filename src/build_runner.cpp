@@ -1,14 +1,28 @@
 #include "bb/build.hpp"
 #include "compilation_database.hpp"
 #include "process.hpp"
+#include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <print>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 int main(int argc, char** argv) {
     namespace fs = std::filesystem;
+
+    if (argc != 2) {
+        std::println(stderr, "usage: build-runner <build|run>");
+        return 1;
+    }
+
+    const std::string_view command{argv[1]};
+
+    if (command != "build" && command != "run") {
+        std::println(stderr, "error: unknown command '{}'", command);
+        return 1;
+    }
+
     bb::Build b;
     build(b);
 
@@ -102,6 +116,12 @@ int main(int argc, char** argv) {
         return *result;
     }
 
+    std::println("Built {}", output_path.string());
+
+    if (command == "build") {
+        return 0;
+    }
+
     const auto executable = fs::absolute(output_path, error);
 
     if (error) {
@@ -109,24 +129,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::ofstream report{
-        ".cache/bb/executable-path",
-        std::ios::binary | std::ios::trunc
-    };
-
-    if (!report) {
-        std::println(stderr, "error: cannot open executable path report");
+    auto executed = bb::run_process({executable.string()});
+    if (!executed) {
+        std::println(stderr, "error: {}", executed.error());
         return 1;
     }
 
-    report << executable.string();
-    report.close();
-
-    if (!report) {
-        std::println(stderr, "error: cannot write executable path report");
-        return 1;
-    }
-
-    std::println("Built {}", output_path.string());
-    return 0;
+    return *executed;
 }
