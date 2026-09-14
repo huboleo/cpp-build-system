@@ -35,6 +35,10 @@ add_executable(bb
     src/initializer.cpp
     src/hashing.cpp
     src/fingerprint.cpp
+    src/dependency_file.cpp
+    src/compiler.cpp
+    src/file_lock.cpp
+    src/build_runner_cache.cpp
 )
 
 target_compile_features(bb PRIVATE cxx_std_23)
