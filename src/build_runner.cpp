@@ -1,16 +1,50 @@
 #include "bb/build.hpp"
 #include "compilation_database.hpp"
 #include "process.hpp"
+#include <algorithm>
 #include <cstdio>
+#include <expected>
 #include <filesystem>
 #include <print>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+// Deletes anything in the build directory that this build did not produce.
+void remove_stale_outputs(const std::vector<std::string>& current) {
+    std::error_code error;
+    fs::directory_iterator entry{"build", error};
+    if (error) {
+        return;
+    }
+
+    const fs::directory_iterator end;
+    for (; entry != end; entry.increment(error)) {
+        if (error) {
+            return;
+        }
+
+        if (std::ranges::find(current, entry->path().string()) != current.end()) {
+            continue;
+        }
+
+        fs::remove_all(entry->path(), error);
+        if (error) {
+            std::println(stderr, "warning: cannot remove stale output '{}': {}",
+                         entry->path().string(), error.message());
+        }
+    }
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
-    namespace fs = std::filesystem;
-
     if (argc != 2) {
         std::println(stderr, "usage: build-runner <build|run>");
         return 1;
@@ -103,8 +137,6 @@ int main(int argc, char** argv) {
     arguments.push_back("-o");
     arguments.push_back(output_path.string());
 
-    std::println("Building {}", target.name);
-
     auto result = bb::run_process(std::move(arguments));
 
     if (!result) {
@@ -116,7 +148,7 @@ int main(int argc, char** argv) {
         return *result;
     }
 
-    std::println("Built {}", output_path.string());
+    remove_stale_outputs({output_path.string()});
 
     if (command == "build") {
         return 0;

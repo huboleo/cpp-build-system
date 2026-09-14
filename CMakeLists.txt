@@ -33,10 +33,12 @@ add_executable(bb
     src/builder.cpp
     src/string_utils.cpp
     src/initializer.cpp
+    src/hashing.cpp
+    src/fingerprint.cpp
 )
 
 target_compile_features(bb PRIVATE cxx_std_23)
-target_link_libraries(bb PRIVATE bb_runtime BLAKE3::blake3)
+target_link_libraries(bb PRIVATE bb_runtime BLAKE3::blake3 nlohmann_json::nlohmann_json)
 target_compile_definitions(bb PRIVATE
     BB_RUNTIME_LIBRARY="$<TARGET_FILE:bb_runtime>"
     BB_SDK_INCLUDE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/include"
