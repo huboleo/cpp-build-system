@@ -19,13 +19,14 @@ enum class CppStandard {
 struct Executable {
     std::string name;
     std::vector<std::string> sources;
+    std::vector<std::string> include_paths;
 };
 
 enum class BuildError : uint8_t { EXECUTABLE_ALREADY_DECLARED };
 
 class Build {
   public:
-    void executable(std::string_view name, std::initializer_list<std::string_view> sources);
+    void executable(Executable executable);
     [[nodiscard]] const std::optional<Executable>& target() const;
     [[nodiscard]] std::optional<BuildError> error() const;
     [[nodiscard]] CppStandard cpp_standard() const;

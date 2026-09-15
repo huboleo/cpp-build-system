@@ -117,10 +117,16 @@ int main(int argc, char** argv) {
 
     const auto output_path = fs::path{"build"} / target.name;
 
-    const std::vector<std::string> compiler_arguments{
+    // Prepare starting commands for both compile_commands.json and final executable compiler
+    // invocation
+    std::vector<std::string> compiler_arguments{
         "clang++",
         std::string{cpp_standard_enum_to_string(b.cpp_standard())},
     };
+    for (const auto& include : target.include_paths) {
+        compiler_arguments.emplace_back("-I");
+        compiler_arguments.push_back(include);
+    }
 
     const auto project_dir = fs::current_path(error);
     if (error) {
@@ -128,10 +134,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Construct records for compile_commands.json
     std::vector<bb::CompileCommand> commands{bb::build_configuration_command(project_dir)};
     for (const auto& source : target.sources) {
         auto source_arguments = compiler_arguments;
-        source_arguments.push_back("-c");
+        source_arguments.emplace_back("-c");
         source_arguments.push_back(source);
         commands.push_back({project_dir, source, std::move(source_arguments)});
     }
@@ -143,12 +150,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Construct final command for compiler invocation
     auto arguments = compiler_arguments;
     for (const auto& source : target.sources) {
         arguments.push_back(source);
     }
-
-    arguments.push_back("-o");
+    arguments.emplace_back("-o");
     arguments.push_back(output_path.string());
 
     auto result = bb::run_process(std::move(arguments));

@@ -4,7 +4,7 @@
 #include <string_view>
 #include <utility>
 
-void bb::Build::executable(std::string_view name, std::initializer_list<std::string_view> sources) {
+void bb::Build::executable(bb::Executable executable) {
     if (_error) {
         return;
     }
@@ -14,13 +14,7 @@ void bb::Build::executable(std::string_view name, std::initializer_list<std::str
         return;
     }
 
-    Executable exec{.name = std::string(name), .sources = {}};
-    exec.sources.reserve(sources.size());
-    for (const auto& source : sources) {
-        exec.sources.emplace_back(source);
-    }
-
-    _target = std::move(exec);
+    _target = std::move(executable);
 }
 
 const std::optional<bb::Executable>& bb::Build::target() const { return _target; }
