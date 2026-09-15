@@ -42,6 +42,22 @@ void remove_stale_outputs(const std::vector<std::string>& current) {
     }
 }
 
+std::string_view cpp_standard_enum_to_string(bb::CppStandard standard) {
+    switch (standard) {
+    case bb::CppStandard::CPP_11:
+        return "-std=c++11";
+    case bb::CppStandard::CPP_14:
+        return "-std=c++14";
+    case bb::CppStandard::CPP_17:
+        return "-std=c++17";
+    case bb::CppStandard::CPP_20:
+        return "-std=c++20";
+    case bb::CppStandard::CPP_23:
+        return "-std=c++23";
+    }
+    return "-std=c++23";
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -103,7 +119,7 @@ int main(int argc, char** argv) {
 
     const std::vector<std::string> compiler_arguments{
         "clang++",
-        "-std=c++23",
+        std::string{cpp_standard_enum_to_string(b.cpp_standard())},
     };
 
     const auto project_dir = fs::current_path(error);
@@ -112,9 +128,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::vector<bb::CompileCommand> commands{
-        bb::build_configuration_command(project_dir)
-    };
+    std::vector<bb::CompileCommand> commands{bb::build_configuration_command(project_dir)};
     for (const auto& source : target.sources) {
         auto source_arguments = compiler_arguments;
         source_arguments.push_back("-c");
@@ -122,8 +136,8 @@ int main(int argc, char** argv) {
         commands.push_back({project_dir, source, std::move(source_arguments)});
     }
 
-    auto database = bb::write_compilation_database(
-        project_dir / "compile_commands.json", commands, bb::DatabaseWriteMode::REPLACE);
+    auto database = bb::write_compilation_database(project_dir / "compile_commands.json", commands,
+                                                   bb::DatabaseWriteMode::REPLACE);
     if (!database) {
         std::println(stderr, "error: {}", database.error());
         return 1;

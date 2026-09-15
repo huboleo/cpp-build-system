@@ -26,3 +26,7 @@ void bb::Build::executable(std::string_view name, std::initializer_list<std::str
 const std::optional<bb::Executable>& bb::Build::target() const { return _target; }
 
 std::optional<bb::BuildError> bb::Build::error() const { return _error; }
+
+void bb::Build::set_cpp_standard(bb::CppStandard standard) { _cpp_standard = standard; }
+
+bb::CppStandard bb::Build::cpp_standard() const { return _cpp_standard; }
