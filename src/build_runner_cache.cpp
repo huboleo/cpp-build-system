@@ -63,11 +63,11 @@ std::map<std::string, std::string> compilation_environment() {
 } // namespace
 
 std::expected<fs::path, std::string> bb::prepare_build_runner() {
-    const fs::path runner_path{".cache/bb/build-runner"};
-    const fs::path temporary_runner_path{".cache/bb/build-runner.tmp"};
-    const fs::path record_path{".cache/bb/build-runner.json"};
-    const fs::path dependency_path{".cache/bb/build-runner.d"};
-    const fs::path temporary_dependency_path{".cache/bb/build-runner.d.tmp"};
+    const fs::path runner_path{"bb/cache/build-runner"};
+    const fs::path temporary_runner_path{"bb/cache/build-runner.tmp"};
+    const fs::path record_path{"bb/cache/build-runner.json"};
+    const fs::path dependency_path{"bb/cache/build-runner.d"};
+    const fs::path temporary_dependency_path{"bb/cache/build-runner.d.tmp"};
 
     auto compiler = identify_compiler("clang++");
     if (!compiler) {

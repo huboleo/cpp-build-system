@@ -14,12 +14,12 @@ std::expected<int, std::string>
 bb::build_project(BuildCommand command) {
     std::error_code error;
 
-    fs::create_directories(".cache/bb", error);
+    fs::create_directories("bb/cache", error);
     if (error) {
         return std::unexpected("Cannot create runner directory: " + error.message());
     }
 
-    auto build_lock = FileLock::acquire(".cache/bb/build-runner.lock");
+    auto build_lock = FileLock::acquire("bb/cache/build-runner.lock");
     if (!build_lock) {
         return std::unexpected(build_lock.error());
     }

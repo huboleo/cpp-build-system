@@ -64,7 +64,7 @@ std::expected<void, std::string> write_build_file(
 void build(bb::Build& b)
 {
     // List the source files for your executable:
-    // b.executable("app", {"src/main.cpp", "src/utils.cpp"});
+    // b.executable({.name = "app", .sources = {"src/main.cpp", "src/utils.cpp"}});
 }
 )";
     } else {
@@ -72,7 +72,7 @@ void build(bb::Build& b)
 
 void build(bb::Build& b)
 {
-    b.executable("app", {"src/main.cpp"});
+    b.executable({.name = "app", .sources = {"src/main.cpp"}});
 }
     )";
     }
@@ -87,8 +87,7 @@ std::expected<void, std::string> write_gitignore_file(const std::filesystem::pat
         return std::unexpected("Could not open " + gitignore_file.string());
     }
 
-    output << R"(.cache
-build
+    output << R"(bb
 )";
     return finish_file(output, gitignore_file);
 }

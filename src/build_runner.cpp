@@ -19,7 +19,7 @@ namespace {
 // Deletes anything in the build directory that this build did not produce.
 void remove_stale_outputs(const std::vector<std::string>& current) {
     std::error_code error;
-    fs::directory_iterator entry{"build", error};
+    fs::directory_iterator entry{"bb/build/debug/bin", error};
     if (error) {
         return;
     }
@@ -76,22 +76,33 @@ int main(int argc, char** argv) {
     bb::Build b;
     build(b);
 
-    if (auto error = b.error()) {
-        switch (*error) {
-        case bb::BuildError::EXECUTABLE_ALREADY_DECLARED:
-            std::println(stderr, "error: only one executable can be declared");
-            break;
-        }
+    for (const auto& error : b.errors()) {
+        std::println(stderr, "{}:{}:{}: error: {}", error.location.file_name(),
+                     error.location.line(), error.location.column(), error.message);
+    }
 
+    if (!b.errors().empty()) {
         return 1;
     }
 
-    if (!b.target()) {
-        std::println("error: no executable declared; call b.executable(...)");
+    // The runner compiles one executable in a single compiler invocation. Libraries and
+    // multiple executables need separate compile and link steps first.
+    if (!b.libraries().empty()) {
+        std::println(stderr, "error: libraries are not supported by the build runner yet");
         return 1;
     }
 
-    const auto& target = *b.target();
+    if (b.executables().empty()) {
+        std::println(stderr, "error: no executable declared; call b.executable(...)");
+        return 1;
+    }
+
+    if (b.executables().size() > 1) {
+        std::println(stderr, "error: the build runner supports only one executable for now");
+        return 1;
+    }
+
+    const auto& target = b.executables().front();
 
     for (const auto& source : target.sources) {
         std::error_code error;
@@ -108,14 +119,14 @@ int main(int argc, char** argv) {
         }
     }
     std::error_code error;
-    fs::create_directories("build", error);
+    fs::create_directories("bb/build/debug/bin", error);
 
     if (error) {
         std::println(stderr, "error: cannot create build directory: {}", error.message());
         return 1;
     }
 
-    const auto output_path = fs::path{"build"} / target.name;
+    const auto output_path = fs::path{"bb/build/debug/bin"} / target.name;
 
     // Prepare starting commands for both compile_commands.json and final executable compiler
     // invocation
