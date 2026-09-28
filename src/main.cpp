@@ -1,4 +1,5 @@
 #include "builder.hpp"
+#include "clang_tools.hpp"
 #include "initializer.hpp"
 #include <cstdio>
 #include <print>
@@ -16,6 +17,8 @@ commands:
   init                Create a project in the current directory
   build               Build the project
   run [-- <args>...]  Build the project, then run its executable with <args>
+  fmt [--check]       Format the project with clang-format; --check only reports
+  lint                Check the project with clang-tidy
   help                Show this message
 )";
 
@@ -79,6 +82,22 @@ int main(int argc, char** argv) {
         const auto error = bb::build_project(build_command, std::move(run_arguments));
         std::println(stderr, "error: {}", error);
         return 1;
+    }
+
+    if (command == "fmt" || command == "lint") {
+        const bool check = command == "fmt" && options.size() == 1 && options[0] == "--check";
+        if (!options.empty() && !check) {
+            return usage_error("unexpected argument '" + options[0] + "' for " + command);
+        }
+
+        auto result = command == "fmt" ? bb::format_project(check) : bb::lint_project();
+
+        if (!result) {
+            std::println(stderr, "error: {}", result.error());
+            return 1;
+        }
+
+        return *result;
     }
 
     return usage_error("unknown command '" + command + "'");

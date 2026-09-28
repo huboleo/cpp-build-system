@@ -47,8 +47,7 @@ std::expected<void, std::string> write_main_file(const std::filesystem::path& ma
 
     main_output << R"(#include <print>
 
-int main()
-{
+int main() {
     std::println("Hello!");
     return 0;
 }
@@ -66,13 +65,78 @@ std::expected<void, std::string> write_build_file(const std::filesystem::path& b
 
     build_output << R"(#include <bb/build.hpp>
 
-void build(bb::Build& b)
-{
+void build(bb::Build& b) {
     b.executable({.name = "app", .sources = {"src/main.cpp"}});
 }
 )";
 
     return finish_file(build_output, build_file);
+}
+
+// The generated sources above are already formatted with this style.
+constexpr std::string_view CLANG_FORMAT = R"(BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+)";
+
+// Broad check families without the noisiest checks. Some of the exclusions would otherwise fire
+// on the generated project itself: exception-escape on main() calling std::println, and
+// identifier-length on build.cpp's `b` parameter.
+constexpr std::string_view CLANG_TIDY = R"(Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers
+WarningsAsErrors: ''
+)";
+
+// Writes a configuration file unless the project already has one (e.g. a cloned repository),
+// in which case it's kept. Returns whether the file was created.
+std::expected<bool, std::string> write_config_file(const std::filesystem::path& path,
+                                                   std::string_view contents) {
+    std::error_code error;
+    const bool exists = std::filesystem::exists(path, error);
+    if (error) {
+        return std::unexpected("Could not inspect " + path.string() + ": " + error.message());
+    }
+
+    if (exists) {
+        return false;
+    }
+
+    std::ofstream output{path, std::ios::binary | std::ios::noreplace};
+    if (!output) {
+        return std::unexpected("Could not open " + path.string());
+    }
+
+    output << contents;
+    if (auto result = finish_file(output, path); !result) {
+        return std::unexpected(result.error());
+    }
+
+    return true;
 }
 
 // Anchored with a leading slash, so they don't also match nested directories like include/bb.
@@ -251,6 +315,18 @@ std::expected<void, std::string> bb::init() {
         return rollback(result.error());
     }
     created_files.push_back(commands_file);
+
+    for (const auto& [name, contents] : {std::pair{".clang-format", CLANG_FORMAT},
+                                         std::pair{".clang-tidy", CLANG_TIDY}}) {
+        const auto path = project_dir / name;
+        auto created = write_config_file(path, contents);
+        if (!created) {
+            return rollback(created.error());
+        }
+        if (*created) {
+            created_files.push_back(path);
+        }
+    }
 
     // Last, so rollback never has to restore an existing .gitignore. A failed update leaves
     // the file untouched.

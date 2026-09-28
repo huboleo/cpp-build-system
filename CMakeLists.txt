@@ -53,6 +53,9 @@ add_library(bb_core STATIC
     src/dependency_file.cpp
     src/compiler.cpp
     src/build_runner_cache.cpp
+    src/executable_search.cpp
+    src/project.cpp
+    src/clang_tools.cpp
 )
 target_link_libraries(bb_core PUBLIC bb_shared BLAKE3::blake3 nlohmann_json::nlohmann_json)
 target_compile_definitions(bb_core PRIVATE
@@ -82,16 +85,19 @@ if(BB_BUILD_TESTS)
 
     add_executable(bb_tests
         tests/build_api_test.cpp
+        tests/clang_tools_test.cpp
         tests/cli_test.cpp
         tests/compilation_database_test.cpp
         tests/compile_flags_test.cpp
         tests/compiler_test.cpp
         tests/dependency_file_test.cpp
+        tests/executable_search_test.cpp
         tests/file_lock_test.cpp
         tests/fingerprint_test.cpp
         tests/hashing_test.cpp
         tests/initializer_test.cpp
         tests/process_test.cpp
+        tests/project_test.cpp
         tests/string_utils_test.cpp
     )
     target_link_libraries(bb_tests PRIVATE bb_core GTest::gtest_main nlohmann_json::nlohmann_json)

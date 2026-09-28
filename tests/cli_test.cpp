@@ -1,6 +1,7 @@
 // End-to-end tests: they run the real bb binary on throwaway projects, and compile real code, so
 // each one takes about a second.
 
+#include "clang_tools.hpp"
 #include "process.hpp"
 #include "test_support.hpp"
 
@@ -97,6 +98,8 @@ TEST(BbCommandLine, RejectsUnknownCommandsAndArguments) {
         {{"build", "extra"}, "error: unexpected argument 'extra' for build"},
         {{"run", "extra"}, "error: unexpected argument 'extra' for run; pass program arguments after --"},
         {{"init", "--existing"}, "error: unexpected argument '--existing' for init"},
+        {{"fmt", "extra"}, "error: unexpected argument 'extra' for fmt"},
+        {{"lint", "--check"}, "error: unexpected argument '--check' for lint"},
     };
 
     for (const auto& [arguments, message] : cases) {
@@ -210,6 +213,46 @@ void build(bb::Build& b)
     const auto second = run({"build"});
     ASSERT_EQ(second.exit_code, 0) << second.output;
     EXPECT_EQ(bb::test::inode_of(path), inode);
+}
+
+TEST_F(BbProject, FmtChecksAndFixesFormatting) {
+    if (const auto tool = bb::find_clang_tool("clang-format"); !tool) {
+        GTEST_SKIP() << tool.error();
+    }
+
+    const auto clean = run({"fmt", "--check"});
+    EXPECT_EQ(clean.exit_code, 0) << clean.output;
+
+    const std::string messy = "int main(){return 0;}\n";
+    write("src/main.cpp", messy);
+
+    const auto check = run({"fmt", "--check"});
+    EXPECT_NE(check.exit_code, 0) << check.output;
+    EXPECT_TRUE(contains(check.output, "src/main.cpp")) << check.output;
+    EXPECT_EQ(bb::test::read_file(project / "src/main.cpp"), messy);
+
+    const auto format = run({"fmt"}, "src");
+    EXPECT_EQ(format.exit_code, 0) << format.output;
+    EXPECT_EQ(bb::test::read_file(project / "src/main.cpp"), "int main() {\n    return 0;\n}\n");
+    EXPECT_EQ(run({"fmt", "--check"}).exit_code, 0);
+}
+
+TEST_F(BbProject, LintIsCleanOnANewProjectAndReportsProblems) {
+    if (const auto tool = bb::find_clang_tool("clang-tidy"); !tool) {
+        GTEST_SKIP() << tool.error();
+    }
+
+    const auto clean = run({"lint"});
+    EXPECT_EQ(clean.exit_code, 0) << clean.output;
+    EXPECT_FALSE(contains(clean.output, "warning:")) << clean.output;
+
+    write("src/main.cpp", R"(int main() {
+    int* pointer = 0;
+    return pointer == 0 ? 0 : 1;
+}
+)");
+    const auto dirty = run({"lint"});
+    EXPECT_TRUE(contains(dirty.output, "[modernize-use-nullptr]")) << dirty.output;
 }
 
 TEST_F(BbProject, BuildDoesNotWaitForARunningProgram) {

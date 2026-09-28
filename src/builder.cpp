@@ -2,9 +2,9 @@
 #include "build_runner_cache.hpp"
 #include "file_lock.hpp"
 #include "process.hpp"
+#include "project.hpp"
 
 #include <cstdio>
-#include <expected>
 #include <filesystem>
 #include <iterator>
 #include <print>
@@ -14,32 +14,6 @@
 #include <vector>
 
 namespace fs = std::filesystem;
-
-namespace {
-
-// Returns the nearest directory, starting at start and walking up, that contains build.cpp.
-std::expected<fs::path, std::string> find_project_root(const fs::path& start) {
-    std::error_code error;
-
-    for (auto directory = start;; directory = directory.parent_path()) {
-        const auto build_file = directory / "build.cpp";
-        if (fs::exists(build_file, error)) {
-            return directory;
-        }
-
-        if (error) {
-            return std::unexpected("Cannot inspect " + build_file.string() + ": " +
-                                   error.message());
-        }
-
-        if (directory == directory.parent_path()) {
-            return std::unexpected("Cannot find build.cpp in this directory or any parent; "
-                                   "run bb init to create a project");
-        }
-    }
-}
-
-} // namespace
 
 std::string bb::build_project(BuildCommand command, std::vector<std::string> run_arguments) {
     std::error_code error;

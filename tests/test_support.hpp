@@ -4,12 +4,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
 #include <system_error>
 #include <unistd.h>
+#include <utility>
 
 namespace bb::test {
 
@@ -63,6 +65,32 @@ class ScopedCurrentPath {
     std::filesystem::path _previous;
 };
 
+// Sets an environment variable until the end of the scope.
+class ScopedEnvironment {
+  public:
+    ScopedEnvironment(std::string name, const std::string& value) : _name{std::move(name)} {
+        if (const char* previous = std::getenv(_name.c_str())) {
+            _previous = previous;
+        }
+        setenv(_name.c_str(), value.c_str(), 1);
+    }
+
+    ~ScopedEnvironment() {
+        if (_previous) {
+            setenv(_name.c_str(), _previous->c_str(), 1);
+        } else {
+            unsetenv(_name.c_str());
+        }
+    }
+
+    ScopedEnvironment(const ScopedEnvironment&) = delete;
+    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
+
+  private:
+    std::string _name;
+    std::optional<std::string> _previous;
+};
+
 inline void write_file(const std::filesystem::path& path, std::string_view contents) {
     if (path.has_parent_path()) {
         std::filesystem::create_directories(path.parent_path());
@@ -73,6 +101,12 @@ inline void write_file(const std::filesystem::path& path, std::string_view conte
     if (!output) {
         throw std::runtime_error("cannot write " + path.string());
     }
+}
+
+// Writes a shell script that can be run like a program.
+inline void write_executable(const std::filesystem::path& path, std::string_view script) {
+    write_file(path, script);
+    std::filesystem::permissions(path, std::filesystem::perms::owner_all);
 }
 
 inline std::string read_file(const std::filesystem::path& path) {

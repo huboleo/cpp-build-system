@@ -1,5 +1,6 @@
 #include "initializer.hpp"
 #include "bb/build.hpp"
+#include "clang_tools.hpp"
 #include "compilation_database.hpp"
 #include "compile_flags.hpp"
 #include "process.hpp"
@@ -78,6 +79,59 @@ TEST(Init, AddsItsEntriesToAnExistingGitignore) {
     EXPECT_EQ(read_file(dir / ".gitignore"), "*.o\n/bb/\n/compile_commands.json\n");
 }
 
+TEST(Init, WritesClangFormatAndClangTidyConfigs) {
+    TempDir dir;
+    const auto result = init_in(dir.path());
+    ASSERT_TRUE(result) << result.error();
+
+    EXPECT_TRUE(read_file(dir / ".clang-format").starts_with("BasedOnStyle: LLVM\n"));
+    const auto clang_tidy = read_file(dir / ".clang-tidy");
+    EXPECT_TRUE(clang_tidy.starts_with("Checks: >\n  -*,\n")) << clang_tidy;
+    EXPECT_NE(clang_tidy.find("-bugprone-exception-escape"), std::string::npos) << clang_tidy;
+}
+
+TEST(Init, KeepsExistingClangConfigs) {
+    TempDir dir;
+    write_file(dir / ".clang-format", "BasedOnStyle: Google\n");
+    write_file(dir / ".clang-tidy", "Checks: '-*'\n");
+
+    const auto result = init_in(dir.path());
+    ASSERT_TRUE(result) << result.error();
+    EXPECT_EQ(read_file(dir / ".clang-format"), "BasedOnStyle: Google\n");
+    EXPECT_EQ(read_file(dir / ".clang-tidy"), "Checks: '-*'\n");
+}
+
+TEST(Init, GeneratedSourcesAreAlreadyFormatted) {
+    const auto clang_format = bb::find_clang_tool("clang-format");
+    if (!clang_format) {
+        GTEST_SKIP() << clang_format.error();
+    }
+
+    TempDir dir;
+    ASSERT_TRUE(init_in(dir.path()));
+
+    bb::test::ScopedCurrentPath current{dir.path()};
+    const auto check = bb::run_process_capture({clang_format->string(), "--style=file",
+                                                "--dry-run", "-Werror", "build.cpp",
+                                                "src/main.cpp"});
+    ASSERT_TRUE(check) << check.error();
+    EXPECT_EQ(check->exit_code, 0) << check->output;
+}
+
+TEST(Init, RollsBackEveryCreatedFileOnFailure) {
+    TempDir dir;
+    // A directory where .gitignore should be makes the last step fail.
+    std::filesystem::create_directories(dir / ".gitignore");
+
+    const auto result = init_in(dir.path());
+    ASSERT_FALSE(result);
+
+    for (const auto* file :
+         {"build.cpp", "src", "compile_commands.json", ".clang-format", ".clang-tidy"}) {
+        EXPECT_FALSE(std::filesystem::exists(dir / file)) << file;
+    }
+}
+
 TEST(Init, RefusesToOverwriteAProject) {
     TempDir dir;
     write_file(dir / "build.cpp", "existing");
@@ -91,6 +145,7 @@ TEST(Init, RefusesToOverwriteAProject) {
     EXPECT_EQ(read_file(dir / ".gitignore"), "*.o\n");
     EXPECT_FALSE(std::filesystem::exists(dir / "src"));
     EXPECT_FALSE(std::filesystem::exists(dir / "compile_commands.json"));
+    EXPECT_FALSE(std::filesystem::exists(dir / ".clang-format"));
 }
 
 TEST(Init, DoesNotCreateANestedGitRepository) {
