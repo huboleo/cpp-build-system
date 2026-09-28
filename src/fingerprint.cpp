@@ -28,6 +28,7 @@ std::string bb::compute_fingerprint(const FingerprintInputs& inputs) {
     append_framed(encoded, FINGERPRINT_VERSION);
 
     append_framed(encoded, inputs.compiler.path.string());
+    append_framed(encoded, inputs.compiler.resolved_path.string());
     append_framed(encoded, inputs.compiler.version);
     append_u64(encoded, inputs.compiler.size);
     append_u64(encoded, static_cast<std::uint64_t>(inputs.compiler.modification_time));
@@ -63,6 +64,7 @@ bb::write_fingerprint_record(const std::filesystem::path& path,
         {"compiler",
          {
              {"path", inputs.compiler.path.string()},
+             {"resolved_path", inputs.compiler.resolved_path.string()},
              {"version", inputs.compiler.version},
              {"size", inputs.compiler.size},
              {"modification_time", inputs.compiler.modification_time},

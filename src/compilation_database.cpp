@@ -1,7 +1,8 @@
 #include "compilation_database.hpp"
+#include "compile_flags.hpp"
 
-#include <algorithm>
 #include <fstream>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <system_error>
 #include <utility>
@@ -10,30 +11,6 @@ namespace {
 
 using nlohmann::json;
 namespace fs = std::filesystem;
-
-bool valid_entry(const json& entry) {
-    if (!entry.is_object() || !entry.contains("directory") || !entry["directory"].is_string() ||
-        !entry.contains("file") || !entry["file"].is_string()) {
-        return false;
-    }
-
-    if (!fs::path{entry["directory"].get<std::string>()}.is_absolute()) {
-        return false;
-    }
-
-    if (entry.contains("arguments")) {
-        const auto& arguments = entry["arguments"];
-        return arguments.is_array() && !arguments.empty() &&
-               std::ranges::all_of(arguments, [](const json& value) { return value.is_string(); });
-    }
-
-    return entry.contains("command") && entry["command"].is_string();
-}
-
-fs::path source_path(const json& entry) {
-    return (fs::path{entry["directory"].get<std::string>()} / entry["file"].get<std::string>())
-        .lexically_normal();
-}
 
 std::expected<void, std::string> write_file(const fs::path& path, const std::string& contents) {
     std::ofstream output{path, std::ios::binary | std::ios::noreplace};
@@ -56,13 +33,33 @@ std::expected<void, std::string> write_file(const fs::path& path, const std::str
     return {};
 }
 
+// A missing or unreadable file counts as different.
+bool has_contents(const fs::path& path, const std::string& contents) {
+    std::ifstream input{path, std::ios::binary};
+    if (!input) {
+        return false;
+    }
+
+    const std::string existing{std::istreambuf_iterator<char>{input},
+                               std::istreambuf_iterator<char>{}};
+    return !input.bad() && existing == contents;
+}
+
 } // namespace
 
+bb::CompileCommand bb::source_command(const std::filesystem::path& project_dir,
+                                      const std::vector<std::string>& flags,
+                                      const std::string& source) {
+    std::vector<std::string> arguments{"clang++"};
+    arguments.insert(arguments.end(), flags.begin(), flags.end());
+    arguments.emplace_back("-c");
+    arguments.push_back(source);
+
+    return {.directory = project_dir, .file = source, .arguments = std::move(arguments)};
+}
+
 bb::CompileCommand bb::build_configuration_command(const std::filesystem::path& project_dir) {
-    return {.directory = project_dir,
-            .file = "build.cpp",
-            .arguments = {"clang++", "-std=c++23", "-I",
-                          "/Users/hubert/Projects/cpp-build-system/include", "-c", "build.cpp"}};
+    return source_command(project_dir, build_file_flags(), "build.cpp");
 }
 
 std::expected<void, std::string>
@@ -71,58 +68,10 @@ bb::write_compilation_database(const std::filesystem::path& path,
     try {
         auto database = json::array();
 
-        if (mode == DatabaseWriteMode::MERGE) {
-            std::error_code error;
-            const bool exists = fs::exists(path, error);
-            if (error) {
-                return std::unexpected("Could not inspect " + path.string() + ": " +
-                                       error.message());
-            }
-
-            if (exists) {
-                if (!fs::is_regular_file(path, error)) {
-                    return std::unexpected(
-                        "Cannot read compilation database " + path.string() +
-                        (error ? ": " + error.message() : ": not a regular file"));
-                }
-                std::ifstream input{path, std::ios::binary};
-                if (!input) {
-                    return std::unexpected("Could not open " + path.string());
-                }
-
-                database = json::parse(input, nullptr, false);
-                if (input.bad()) {
-                    return std::unexpected("Could not read " + path.string());
-                }
-                if (database.is_discarded()) {
-                    return std::unexpected("Invalid JSON in " + path.string());
-                }
-                if (!database.is_array() || !std::ranges::all_of(database, valid_entry)) {
-                    return std::unexpected("Invalid compilation database entries in " +
-                                           path.string());
-                }
-            }
-        }
-
         for (const auto& command : commands) {
             json entry{{"directory", command.directory.string()},
                        {"file", command.file.string()},
                        {"arguments", command.arguments}};
-            if (!valid_entry(entry)) {
-                return std::unexpected("Invalid compile command for " + command.file.string());
-            }
-
-            if (mode == DatabaseWriteMode::MERGE) {
-                const auto source = source_path(entry);
-                // Match relative and absolute spellings of the same source.
-                for (auto it = database.begin(); it != database.end();) {
-                    if (source_path(*it) == source) {
-                        it = database.erase(it);
-                    } else {
-                        ++it;
-                    }
-                }
-            }
             database.push_back(std::move(entry));
         }
 
@@ -130,6 +79,10 @@ bb::write_compilation_database(const std::filesystem::path& path,
         const auto contents = database.dump(2) + "\n";
         if (mode == DatabaseWriteMode::CREATE) {
             return write_file(path, contents);
+        }
+
+        if (has_contents(path, contents)) {
+            return {};
         }
 
         auto temporary = path;

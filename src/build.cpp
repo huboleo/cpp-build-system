@@ -14,6 +14,15 @@ std::optional<std::string> name_error(const bb::Build& b, const std::string& nam
         return "target name must not be empty";
     }
 
+    // The name becomes the output file name, so it must not point into another directory.
+    if (name.contains('/') || name.contains('\\')) {
+        return "target name '" + name + "' must not contain '/' or '\\'";
+    }
+
+    if (name == "." || name == "..") {
+        return "target name '" + name + "' is not a valid file name";
+    }
+
     const auto same_name = [&](const auto& target) { return target.name == name; };
     if (std::ranges::any_of(b.libraries(), same_name) ||
         std::ranges::any_of(b.executables(), same_name)) {

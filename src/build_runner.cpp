@@ -1,5 +1,7 @@
 #include "bb/build.hpp"
 #include "compilation_database.hpp"
+#include "compile_flags.hpp"
+#include "file_lock.hpp"
 #include "process.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -42,27 +44,11 @@ void remove_stale_outputs(const std::vector<std::string>& current) {
     }
 }
 
-std::string_view cpp_standard_enum_to_string(bb::CppStandard standard) {
-    switch (standard) {
-    case bb::CppStandard::CPP_11:
-        return "-std=c++11";
-    case bb::CppStandard::CPP_14:
-        return "-std=c++14";
-    case bb::CppStandard::CPP_17:
-        return "-std=c++17";
-    case bb::CppStandard::CPP_20:
-        return "-std=c++20";
-    case bb::CppStandard::CPP_23:
-        return "-std=c++23";
-    }
-    return "-std=c++23";
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::println(stderr, "usage: build-runner <build|run>");
+    if (argc < 2) {
+        std::println(stderr, "usage: build-runner <build|run> [<program-arguments>...]");
         return 1;
     }
 
@@ -118,6 +104,17 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+
+    // Held while writing build outputs, and released before running the program, so builds
+    // in other terminals don't wait for it to exit.
+    auto build_lock = bb::FileLock::acquire("bb/cache/build.lock", [] {
+        std::println(stderr, "waiting for another bb process in this project to finish");
+    });
+    if (!build_lock) {
+        std::println(stderr, "error: {}", build_lock.error());
+        return 1;
+    }
+
     std::error_code error;
     fs::create_directories("bb/build/debug/bin", error);
 
@@ -128,16 +125,8 @@ int main(int argc, char** argv) {
 
     const auto output_path = fs::path{"bb/build/debug/bin"} / target.name;
 
-    // Prepare starting commands for both compile_commands.json and final executable compiler
-    // invocation
-    std::vector<std::string> compiler_arguments{
-        "clang++",
-        std::string{cpp_standard_enum_to_string(b.cpp_standard())},
-    };
-    for (const auto& include : target.include_paths) {
-        compiler_arguments.emplace_back("-I");
-        compiler_arguments.push_back(include);
-    }
+    // Used by both compile_commands.json and the final compiler invocation.
+    const auto flags = bb::target_flags(b.cpp_standard(), target.include_paths);
 
     const auto project_dir = fs::current_path(error);
     if (error) {
@@ -148,10 +137,7 @@ int main(int argc, char** argv) {
     // Construct records for compile_commands.json
     std::vector<bb::CompileCommand> commands{bb::build_configuration_command(project_dir)};
     for (const auto& source : target.sources) {
-        auto source_arguments = compiler_arguments;
-        source_arguments.emplace_back("-c");
-        source_arguments.push_back(source);
-        commands.push_back({project_dir, source, std::move(source_arguments)});
+        commands.push_back(bb::source_command(project_dir, flags, source));
     }
 
     auto database = bb::write_compilation_database(project_dir / "compile_commands.json", commands,
@@ -162,7 +148,8 @@ int main(int argc, char** argv) {
     }
 
     // Construct final command for compiler invocation
-    auto arguments = compiler_arguments;
+    std::vector<std::string> arguments{"clang++"};
+    arguments.insert(arguments.end(), flags.begin(), flags.end());
     for (const auto& source : target.sources) {
         arguments.push_back(source);
     }
@@ -181,6 +168,7 @@ int main(int argc, char** argv) {
     }
 
     remove_stale_outputs({output_path.string()});
+    build_lock->release();
 
     if (command == "build") {
         return 0;
@@ -193,11 +181,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto executed = bb::run_process({executable.string()});
-    if (!executed) {
-        std::println(stderr, "error: {}", executed.error());
-        return 1;
-    }
+    std::vector<std::string> program{executable.string()};
+    program.insert(program.end(), argv + 2, argv + argc);
 
-    return *executed;
+    const auto exec_error = bb::replace_process(std::move(program));
+    std::println(stderr, "error: {}", exec_error);
+    return 1;
 }

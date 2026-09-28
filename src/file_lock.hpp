@@ -2,6 +2,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace bb {
@@ -16,8 +17,13 @@ class FileLock {
 
     ~FileLock();
 
+    // Releases the lock before destruction. Does nothing if it was already released.
+    void release();
+
+    // Blocks until the lock is free. Calls on_wait first if another process holds it.
     [[nodiscard]]
-    static std::expected<FileLock, std::string> acquire(const std::filesystem::path& path);
+    static std::expected<FileLock, std::string>
+    acquire(const std::filesystem::path& path, const std::function<void()>& on_wait = {});
 
   private:
     explicit FileLock(int descriptor);

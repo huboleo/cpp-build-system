@@ -1,53 +1,85 @@
 #include "builder.hpp"
 #include "initializer.hpp"
 #include <cstdio>
-#include <cstdlib>
 #include <print>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace {
+
+constexpr std::string_view USAGE = R"(usage: bb <command> [options]
+
+commands:
+  init                Create a project in the current directory
+  build               Build the project
+  run [-- <args>...]  Build the project, then run its executable with <args>
+  help                Show this message
+)";
+
+int usage_error(const std::string& message) {
+    std::println(stderr, "error: {}\n", message);
+    std::print(stderr, "{}", USAGE);
+    return 1;
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::println(stderr, "Invalid usage. Check supported commands here...");
-        exit(1);
+    const std::vector<std::string> arguments(argv + 1, argv + argc);
+
+    if (arguments.empty()) {
+        std::print(stderr, "{}", USAGE);
+        return 1;
     }
 
-    std::string command = argv[1];
+    const auto& command = arguments.front();
+    const auto options = std::span{arguments}.subspan(1);
+
+    if (command == "help" || command == "--help" || command == "-h") {
+        std::print("{}", USAGE);
+        return 0;
+    }
+
     if (command == "init") {
-        auto mode = bb::InitMode::NEW_PROJECT;
-        if (argc == 3 && std::string{argv[2]} == "--existing") {
-            mode = bb::InitMode::EXISTING_PROJECT;
-        } else if (argc != 2) {
-            std::println(stderr, "Usage: bb init [--existing]");
-            return 1;
+        if (!options.empty()) {
+            return usage_error("unexpected argument '" + options[0] + "' for init");
         }
 
-        auto result = bb::init(mode);
+        auto result = bb::init();
 
         if (!result) {
             std::println(stderr, "error: {}", result.error());
             return 1;
         }
 
-        if (mode == bb::InitMode::EXISTING_PROJECT) {
-            std::println("initialized; edit build.cpp to list your executable's sources before building");
-        } else {
-            std::println("initialized");
-        }
-    } else if (command == "build" || command == "run") {
+        std::println("initialized");
+        return 0;
+    }
+
+    if (command == "build" || command == "run") {
         const auto build_command =
             command == "build"
                 ? bb::BuildCommand::BUILD
                 : bb::BuildCommand::RUN;
 
-        auto result = bb::build_project(build_command);
-
-        if (!result) {
-            std::println(stderr, "error: {}", result.error());
-            return 1;
+        std::vector<std::string> run_arguments;
+        if (build_command == bb::BuildCommand::RUN && !options.empty() && options[0] == "--") {
+            run_arguments.assign(options.begin() + 1, options.end());
+        } else if (!options.empty()) {
+            const std::string hint =
+                build_command == bb::BuildCommand::RUN ? "; pass program arguments after --" : "";
+            return usage_error("unexpected argument '" + options[0] + "' for " + command + hint);
         }
 
-        return *result;
+        // On success this process becomes the build runner, so reaching the next line means
+        // the build could not start.
+        const auto error = bb::build_project(build_command, std::move(run_arguments));
+        std::println(stderr, "error: {}", error);
+        return 1;
     }
 
-    return 0;
+    return usage_error("unknown command '" + command + "'");
 }

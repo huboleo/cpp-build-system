@@ -1,11 +1,19 @@
 #include "initializer.hpp"
+#include "bb/build.hpp"
 #include "compilation_database.hpp"
+#include "compile_flags.hpp"
 #include "process.hpp"
+#include "string_utils.hpp"
+#include <array>
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -44,112 +52,144 @@ int main()
     std::println("Hello!");
     return 0;
 }
-    )";
+)";
 
     return finish_file(main_output, main_file);
 }
 
-std::expected<void, std::string> write_build_file(
-    const std::filesystem::path& build_file,
-    bb::InitMode mode = bb::InitMode::NEW_PROJECT) {
+std::expected<void, std::string> write_build_file(const std::filesystem::path& build_file) {
     std::ofstream build_output{build_file, std::ios::out | std::ios::noreplace};
 
     if (!build_output) {
         return std::unexpected("Could not open " + build_file.string());
     }
 
-    if (mode == bb::InitMode::EXISTING_PROJECT) {
-        build_output << R"(#include <bb/build.hpp>
-
-void build(bb::Build& b)
-{
-    // List the source files for your executable:
-    // b.executable({.name = "app", .sources = {"src/main.cpp", "src/utils.cpp"}});
-}
-)";
-    } else {
-        build_output << R"(#include <bb/build.hpp>
+    build_output << R"(#include <bb/build.hpp>
 
 void build(bb::Build& b)
 {
     b.executable({.name = "app", .sources = {"src/main.cpp"}});
 }
-    )";
-    }
+)";
 
     return finish_file(build_output, build_file);
 }
 
-std::expected<void, std::string> write_gitignore_file(const std::filesystem::path& gitignore_file) {
-    std::ofstream output{gitignore_file, std::ios::out | std::ios::noreplace};
+// Anchored with a leading slash, so they don't also match nested directories like include/bb.
+constexpr std::array<std::string_view, 2> GITIGNORE_ENTRIES{"/bb/", "/compile_commands.json"};
 
+std::expected<std::string, std::string> read_file(const std::filesystem::path& path) {
+    std::ifstream input{path, std::ios::binary};
+    if (!input) {
+        return std::unexpected("Could not open " + path.string());
+    }
+
+    std::string contents{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    if (input.bad()) {
+        return std::unexpected("Could not read " + path.string());
+    }
+
+    return contents;
+}
+
+// Writes through a temporary file, so a failure leaves any existing file intact.
+std::expected<void, std::string> replace_file(const std::filesystem::path& path,
+                                              std::string_view contents) {
+    auto temporary = path;
+    temporary += ".tmp";
+
+    std::ofstream output{temporary, std::ios::binary | std::ios::trunc};
     if (!output) {
-        return std::unexpected("Could not open " + gitignore_file.string());
+        return std::unexpected("Could not open " + temporary.string());
     }
 
-    output << R"(bb
-)";
-    return finish_file(output, gitignore_file);
-}
-
-std::expected<void, std::string> write_compile_commands(
-    const std::filesystem::path& project_dir,
-    bb::InitMode mode = bb::InitMode::NEW_PROJECT) {
-    std::vector<bb::CompileCommand> commands{
-        bb::build_configuration_command(project_dir)
-    };
-
-    if (mode == bb::InitMode::NEW_PROJECT) {
-        commands.push_back({project_dir, "src/main.cpp",
-                            {"clang++", "-std=c++23", "-c", "src/main.cpp"}});
-    }
-
-    return bb::write_compilation_database(
-        project_dir / "compile_commands.json", commands,
-        mode == bb::InitMode::EXISTING_PROJECT ? bb::DatabaseWriteMode::MERGE
-                                               : bb::DatabaseWriteMode::CREATE);
-}
-
-std::expected<void, std::string> init_existing(const std::filesystem::path& project_dir) {
-    const auto build_file = project_dir / "build.cpp";
-    const auto gitignore_file = project_dir / ".gitignore";
-    std::error_code error;
-    const bool has_gitignore = std::filesystem::exists(gitignore_file, error);
-    if (error) {
-        return std::unexpected("Could not inspect " + gitignore_file.string() + ": " + error.message());
-    }
-
-    if (auto result = write_build_file(build_file, bb::InitMode::EXISTING_PROJECT); !result) {
+    output << contents;
+    if (auto result = finish_file(output, temporary); !result) {
         return result;
     }
 
-    bool created_gitignore = false;
-    const auto rollback = [&](std::string diagnostic) -> std::expected<void, std::string> {
-        if (created_gitignore) {
-            remove_created_path(gitignore_file, diagnostic);
-        }
-        remove_created_path(build_file, diagnostic);
+    std::error_code error;
+    std::filesystem::rename(temporary, path, error);
+    if (error) {
+        std::string diagnostic = "Could not replace " + path.string() + ": " + error.message();
+        remove_created_path(temporary, diagnostic);
         return std::unexpected(diagnostic);
-    };
-
-    if (!has_gitignore) {
-        if (auto result = write_gitignore_file(gitignore_file); !result) {
-            return rollback(result.error());
-        }
-        created_gitignore = true;
-    }
-
-    // Update the existing database last, after all other file creation succeeds.
-    if (auto result = write_compile_commands(project_dir, bb::InitMode::EXISTING_PROJECT); !result) {
-        return rollback(result.error());
     }
 
     return {};
 }
 
+bool has_line(std::string_view contents, std::string_view line) {
+    for (const auto part : std::views::split(contents, '\n')) {
+        if (string_utils::trim(std::string_view{part.begin(), part.end()}) == line) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Adds bb's entries to .gitignore, creating the file if needed.
+std::expected<void, std::string> update_gitignore_file(const std::filesystem::path& gitignore_file) {
+    std::error_code error;
+    const bool exists = std::filesystem::exists(gitignore_file, error);
+    if (error) {
+        return std::unexpected("Could not inspect " + gitignore_file.string() + ": " +
+                               error.message());
+    }
+
+    std::string previous;
+    if (exists) {
+        auto contents = read_file(gitignore_file);
+        if (!contents) {
+            return std::unexpected(contents.error());
+        }
+        previous = std::move(*contents);
+    }
+
+    std::string updated = previous;
+    for (const auto entry : GITIGNORE_ENTRIES) {
+        if (has_line(updated, entry)) {
+            continue;
+        }
+
+        if (!updated.empty() && !updated.ends_with('\n')) {
+            updated += '\n';
+        }
+        updated += entry;
+        updated += '\n';
+    }
+
+    if (updated == previous) {
+        return {};
+    }
+
+    return replace_file(gitignore_file, updated);
+}
+
+// Running git init inside an existing repository would create a nested one.
+bool inside_git_work_tree(const std::filesystem::path& directory) {
+    auto result = bb::run_process_capture(
+        {"git", "-C", directory.string(), "rev-parse", "--is-inside-work-tree"});
+    return result && result->exit_code == 0 && string_utils::trim(result->output) == "true";
+}
+
+// Written before the first build so clangd works right away. The generated build.cpp doesn't
+// set a standard, so src/main.cpp gets the flags the runner will use for Build's default.
+std::expected<void, std::string> write_compile_commands(const std::filesystem::path& project_dir) {
+    const auto flags = bb::target_flags(bb::Build{}.cpp_standard(), {});
+    const std::vector<bb::CompileCommand> commands{
+        bb::build_configuration_command(project_dir),
+        bb::source_command(project_dir, flags, "src/main.cpp"),
+    };
+
+    return bb::write_compilation_database(project_dir / "compile_commands.json", commands,
+                                          bb::DatabaseWriteMode::CREATE);
+}
+
 } // namespace
 
-std::expected<void, std::string> bb::init(InitMode mode) {
+std::expected<void, std::string> bb::init() {
     namespace fs = std::filesystem;
 
     std::error_code error;
@@ -159,10 +199,6 @@ std::expected<void, std::string> bb::init(InitMode mode) {
         return std::unexpected("Could not determine project directory: " + error.message());
     }
 
-    if (mode == InitMode::EXISTING_PROJECT) {
-        return init_existing(project_dir);
-    }
-
     const auto build_file = project_dir / "build.cpp";
     const auto source_dir = project_dir / "src";
     const auto main_file = source_dir / "main.cpp";
@@ -170,7 +206,8 @@ std::expected<void, std::string> bb::init(InitMode mode) {
 
     const auto gitignore_file = project_dir / ".gitignore";
 
-    for (const auto& path : {build_file, main_file, commands_file, gitignore_file}) {
+    // An existing .gitignore is fine (e.g. a freshly cloned repository): bb adds its entries.
+    for (const auto& path : {build_file, main_file, commands_file}) {
         const bool exists = fs::exists(path, error);
 
         if (error) {
@@ -215,12 +252,17 @@ std::expected<void, std::string> bb::init(InitMode mode) {
     }
     created_files.push_back(commands_file);
 
-    if (auto result = write_gitignore_file(gitignore_file); !result) {
+    // Last, so rollback never has to restore an existing .gitignore. A failed update leaves
+    // the file untouched.
+    if (auto result = update_gitignore_file(gitignore_file); !result) {
         return rollback(result.error());
     }
-    created_files.push_back(gitignore_file);
 
     // File generation is complete: a Git failure must preserve the project.
+    if (inside_git_work_tree(project_dir)) {
+        return {};
+    }
+
     const std::string git_retry = "\nRun git init in this directory to retry.";
     auto result = run_process({"git", "-C", project_dir.string(), "init"});
     if (!result) {

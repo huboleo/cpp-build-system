@@ -18,7 +18,18 @@ bool is_executable_file(const fs::path& path) {
     return fs::is_regular_file(path, error) && !error && access(path.c_str(), X_OK) == 0;
 }
 
-std::expected<fs::path, std::string> resolve_executable(std::string_view executable) {
+std::expected<fs::path, std::string> absolute_path(const fs::path& path) {
+    std::error_code error;
+    auto absolute = fs::absolute(path, error);
+    if (error) {
+        return std::unexpected("Cannot resolve compiler " + path.string() + ": " +
+                               error.message());
+    }
+    return absolute;
+}
+
+// Returns an absolute path to the executable without resolving symlinks.
+std::expected<fs::path, std::string> find_executable(std::string_view executable) {
     const fs::path requested{executable};
 
     if (requested.has_parent_path()) {
@@ -26,13 +37,7 @@ std::expected<fs::path, std::string> resolve_executable(std::string_view executa
             return std::unexpected("Compiler is not an executable file: " + requested.string());
         }
 
-        std::error_code error;
-        auto resolved = fs::canonical(requested, error);
-        if (error) {
-            return std::unexpected("Cannot resolve compiler " + requested.string() + ": " +
-                                   error.message());
-        }
-        return resolved;
+        return absolute_path(requested);
     }
 
     const char* path_environment = std::getenv("PATH");
@@ -48,13 +53,7 @@ std::expected<fs::path, std::string> resolve_executable(std::string_view executa
         const fs::path candidate = directory.empty() ? requested : fs::path{directory} / requested;
 
         if (is_executable_file(candidate)) {
-            std::error_code error;
-            auto resolved = fs::canonical(candidate, error);
-            if (error) {
-                return std::unexpected("Cannot resolve compiler " + candidate.string() + ": " +
-                                       error.message());
-            }
-            return resolved;
+            return absolute_path(candidate);
         }
 
         if (end == std::string_view::npos) {
@@ -70,18 +69,24 @@ std::expected<fs::path, std::string> resolve_executable(std::string_view executa
 
 std::expected<bb::CompilerIdentity, std::string>
 bb::identify_compiler(std::string_view executable) {
-    auto path = resolve_executable(executable);
+    auto path = find_executable(executable);
     if (!path) {
         return std::unexpected(path.error());
     }
 
     std::error_code error;
-    const auto size = fs::file_size(*path, error);
+    auto resolved_path = fs::canonical(*path, error);
+    if (error) {
+        return std::unexpected("Cannot resolve compiler " + path->string() + ": " +
+                               error.message());
+    }
+
+    const auto size = fs::file_size(resolved_path, error);
     if (error) {
         return std::unexpected("Cannot read compiler size: " + error.message());
     }
 
-    const auto modification_time = fs::last_write_time(*path, error);
+    const auto modification_time = fs::last_write_time(resolved_path, error);
     if (error) {
         return std::unexpected("Cannot read compiler modification time: " + error.message());
     }
@@ -100,6 +105,7 @@ bb::identify_compiler(std::string_view executable) {
 
     return CompilerIdentity{
         .path = std::move(*path),
+        .resolved_path = std::move(resolved_path),
         .version = std::move(version->output),
         .size = size,
         .modification_time =

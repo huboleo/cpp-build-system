@@ -1,7 +1,7 @@
 #pragma once
 
-#include <expected>
 #include <string>
+#include <vector>
 
 namespace bb {
 
@@ -10,9 +10,10 @@ enum class BuildCommand {
     RUN,
 };
 
-// Prepares and launches the build runner for the requested command.
-// Returns the runner's exit code, or an error preparing/launching it.
+// Prepares the build runner for the project containing the current directory, then replaces
+// this process with it. For RUN, the runner passes run_arguments to the executable it runs.
+// Returns only if preparing or launching the runner fails, with the error message.
 [[nodiscard]]
-std::expected<int, std::string> build_project(BuildCommand command);
+std::string build_project(BuildCommand command, std::vector<std::string> run_arguments = {});
 
 } // namespace bb

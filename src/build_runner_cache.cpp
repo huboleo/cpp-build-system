@@ -1,5 +1,6 @@
 #include "build_runner_cache.hpp"
 
+#include "compile_flags.hpp"
 #include "compiler.hpp"
 #include "dependency_file.hpp"
 #include "fingerprint.hpp"
@@ -74,11 +75,11 @@ std::expected<fs::path, std::string> bb::prepare_build_runner() {
         return std::unexpected(compiler.error());
     }
 
-    const std::vector<std::string> compile_command{
-        compiler->path.string(),
-        "-std=c++23",
-        "-I",
-        BB_SDK_INCLUDE_DIR,
+    // The flags come from the same place as the build.cpp entry in compile_commands.json.
+    std::vector<std::string> compile_command{compiler->path.string()};
+    const auto flags = build_file_flags();
+    compile_command.insert(compile_command.end(), flags.begin(), flags.end());
+    compile_command.insert(compile_command.end(), {
         "-MMD",
         "-MF",
         temporary_dependency_path.string(),
@@ -88,7 +89,7 @@ std::expected<fs::path, std::string> bb::prepare_build_runner() {
         BB_RUNTIME_LIBRARY,
         "-o",
         temporary_runner_path.string(),
-    };
+    });
     const auto environment = compilation_environment();
 
     std::error_code error;
@@ -162,6 +163,13 @@ std::expected<fs::path, std::string> bb::prepare_build_runner() {
         return std::unexpected(dependencies.error());
     }
     dependencies->emplace_back(BB_RUNTIME_LIBRARY);
+
+    // The dependency file leaves out bb's headers, because they come in through -isystem.
+    auto headers = sdk_headers();
+    if (!headers) {
+        return std::unexpected(headers.error());
+    }
+    dependencies->insert(dependencies->end(), headers->begin(), headers->end());
 
     auto files = hash_files(*dependencies);
     if (!files) {

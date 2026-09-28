@@ -1,6 +1,7 @@
 #include "process.hpp"
 #include <array>
 #include <cerrno>
+#include <cstdio>
 #include <sys/wait.h>
 #include <system_error>
 #include <unistd.h>
@@ -61,6 +62,21 @@ std::expected<int, std::string> bb::run_process(std::vector<std::string> argumen
     }
 
     return wait_for_process(pid, arguments.front());
+}
+
+std::string bb::replace_process(std::vector<std::string> arguments) {
+    if (arguments.empty() || arguments.front().empty()) {
+        return "Process requires a program name";
+    }
+
+    auto argv = make_argv(arguments);
+
+    // exec discards anything still buffered in this process.
+    std::fflush(nullptr);
+    execvp(argv[0], argv.data());
+
+    return "Could not start " + arguments.front() + ": " +
+           std::error_code(errno, std::generic_category()).message();
 }
 
 std::expected<bb::ProcessOutput, std::string>
