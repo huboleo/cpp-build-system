@@ -1,4 +1,5 @@
 #include "bb/build.hpp"
+#include "build_access.hpp"
 #include "compilation_database.hpp"
 #include "compile_flags.hpp"
 #include "file_lock.hpp"
@@ -62,33 +63,37 @@ int main(int argc, char** argv) {
     bb::Build b;
     build(b);
 
-    for (const auto& error : b.errors()) {
-        std::println(stderr, "{}:{}:{}: error: {}", error.location.file_name(),
-                     error.location.line(), error.location.column(), error.message);
+    using bb::detail::BuildAccess;
+    const auto& errors = BuildAccess::errors(b);
+    const auto& libraries = BuildAccess::libraries(b);
+    const auto& executables = BuildAccess::executables(b);
+
+    for (const auto& error : errors) {
+        std::println(stderr, "error: {}", error);
     }
 
-    if (!b.errors().empty()) {
+    if (!errors.empty()) {
         return 1;
     }
 
     // The runner compiles one executable in a single compiler invocation. Libraries and
     // multiple executables need separate compile and link steps first.
-    if (!b.libraries().empty()) {
+    if (!libraries.empty()) {
         std::println(stderr, "error: libraries are not supported by the build runner yet");
         return 1;
     }
 
-    if (b.executables().empty()) {
+    if (executables.empty()) {
         std::println(stderr, "error: no executable declared; call b.executable(...)");
         return 1;
     }
 
-    if (b.executables().size() > 1) {
+    if (executables.size() > 1) {
         std::println(stderr, "error: the build runner supports only one executable for now");
         return 1;
     }
 
-    const auto& target = b.executables().front();
+    const auto& target = executables.front();
 
     for (const auto& source : target.sources) {
         std::error_code error;

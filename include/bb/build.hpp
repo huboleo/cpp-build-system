@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <source_location>
 #include <string>
 #include <vector>
 
@@ -52,31 +51,26 @@ struct ExecutableOptions {
     std::vector<Library> links = {};
 };
 
-struct BuildError {
-    std::string message;
-    std::source_location location; // the line in build.cpp that caused it
-};
+namespace detail {
+struct BuildAccess; // defined in bb's own sources, not part of the API
+} // namespace detail
 
 class Build {
   public:
-    Library library(LibraryOptions options,
-                    std::source_location location = std::source_location::current());
-    Executable executable(ExecutableOptions options,
-                          std::source_location location = std::source_location::current());
+    Library library(LibraryOptions options);
+    Executable executable(ExecutableOptions options);
 
     [[nodiscard]] CppStandard cpp_standard() const;
     void set_cpp_standard(CppStandard standard);
 
-    // Read by the build runner after build() returns.
-    [[nodiscard]] const std::vector<LibraryOptions>& libraries() const;
-    [[nodiscard]] const std::vector<ExecutableOptions>& executables() const;
-    [[nodiscard]] const LibraryOptions& resolve(Library library) const;
-    [[nodiscard]] const std::vector<BuildError>& errors() const;
-
   private:
+    friend struct detail::BuildAccess;
+
+    [[nodiscard]] const LibraryOptions& resolve(Library library) const;
+
     std::vector<LibraryOptions> _libraries;
     std::vector<ExecutableOptions> _executables;
-    std::vector<BuildError> _errors;
+    std::vector<std::string> _errors;
     CppStandard _cpp_standard{CppStandard::CPP_23};
 };
 } // namespace bb
