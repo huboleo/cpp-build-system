@@ -1,6 +1,8 @@
 #include "bb/build.hpp"
 #include "build_access.hpp"
+#include "test_support.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <gtest/gtest.h>
@@ -121,6 +123,56 @@ TEST(Build, RejectsNamesThatAreNotPlainFileNames) {
                           "library '.': name is not a valid file name",
                           "library '..': name is not a valid file name",
                       }));
+}
+
+namespace {
+
+// Directory iteration order isn't specified, so the tests compare sorted lists.
+Strings sorted_sources(bb::Build& b, const std::function<Strings(bb::Build&)>& find) {
+    auto sources = find(b);
+    std::ranges::sort(sources);
+    return sources;
+}
+
+} // namespace
+
+TEST(AllSourcesFrom, FindsCompiledFilesButNotHeaders) {
+    bb::test::TempDir dir;
+    for (const auto* file : {"src/main.cpp", "src/utils/strings.cc", "src/utils/strings.hpp",
+                             "src/utils/detail.h", "src/notes.txt"}) {
+        bb::test::write_file(dir / file, "");
+    }
+
+    bb::Build b;
+    const auto sources =
+        sorted_sources(b, [&](bb::Build& build) { return build.all_sources_from(dir / "src"); });
+    EXPECT_EQ(sources, (Strings{(dir / "src/main.cpp").string(),
+                                (dir / "src/utils/strings.cc").string()}));
+    EXPECT_TRUE(BuildAccess::errors(b).empty());
+}
+
+TEST(AllSourcesFrom, UsesTheGivenExtensions) {
+    bb::test::TempDir dir;
+    for (const auto* file : {"src/main.cpp", "src/kernel.cu", "src/shader.metal"}) {
+        bb::test::write_file(dir / file, "");
+    }
+
+    bb::Build b;
+    const auto sources = sorted_sources(b, [&](bb::Build& build) {
+        return build.all_sources_from(dir / "src", {".cu", ".metal"});
+    });
+    EXPECT_EQ(sources, (Strings{(dir / "src/kernel.cu").string(),
+                                (dir / "src/shader.metal").string()}));
+}
+
+TEST(AllSourcesFrom, ReportsAMissingDirectory) {
+    bb::test::TempDir dir;
+    bb::Build b;
+
+    EXPECT_TRUE(b.all_sources_from(dir / "srcc").empty());
+    ASSERT_EQ(BuildAccess::errors(b).size(), 1u);
+    EXPECT_TRUE(BuildAccess::errors(b)[0].starts_with("cannot list sources in"))
+        << BuildAccess::errors(b)[0];
 }
 
 TEST(Build, AcceptsOrdinaryNames) {

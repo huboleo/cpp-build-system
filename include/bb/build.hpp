@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,7 @@ class Executable {
 class Library {
   public:
     // Turns `.links = {some_executable}` into a readable compile error.
-    Library(Executable) = delete("an executable can't be linked; link a library instead");
+    Library(Executable) = delete ("an executable can't be linked; link a library instead");
 
   private:
     friend class Build;
@@ -62,6 +63,9 @@ class Build {
 
     [[nodiscard]] CppStandard cpp_standard() const;
     void set_cpp_standard(CppStandard standard);
+    std::vector<std::string> all_sources_from(const std::filesystem::path& path);
+    std::vector<std::string> all_sources_from(const std::filesystem::path& path,
+                                              const std::vector<std::string_view>& extensions);
 
   private:
     friend struct detail::BuildAccess;

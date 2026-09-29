@@ -21,8 +21,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr std::array<std::string_view, 12> SOURCE_EXTENSIONS{
-    ".c", ".cc", ".cpp", ".cxx", ".cppm", ".ixx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp",
+constexpr std::array<std::string_view, 13> SOURCE_EXTENSIONS{
+    ".c", ".cc", ".c++", ".cpp", ".cxx", ".cppm", ".ixx",
+    ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp",
 };
 
 // Homebrew installs LLVM without adding it to PATH.
@@ -185,9 +186,9 @@ std::expected<std::vector<fs::path>, std::string> bb::lintable_files(const fs::p
             return std::unexpected("Invalid entry in " + database_path.string());
         }
 
-        const auto file = (fs::path{entry["directory"].get<std::string>()} /
-                           entry["file"].get<std::string>())
-                              .lexically_normal();
+        const auto file =
+            (fs::path{entry["directory"].get<std::string>()} / entry["file"].get<std::string>())
+                .lexically_normal();
         files.push_back(file.lexically_relative(project_dir));
     }
 
